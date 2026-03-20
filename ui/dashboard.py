@@ -227,14 +227,15 @@ def load_dashboard_styles():
 
 def init_session_state():
     defaults = {
-    "student": None,
-    "transactions": [],
-    "goals": [],
-    "budget": None,
-    "last_runner_result": None,
-    "last_upload_batch": None,
-    "last_vision_result": None,
-}
+        "student": None,
+        "transactions": [],
+        "goals": [],
+        "budget": None,
+        "last_runner_result": None,
+        "last_upload_batch": None,
+        "last_vision_result": None,
+        "section": "Overview",
+    }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
@@ -586,70 +587,45 @@ def render_upload_section():
 # =========================================================
 
 def render_sidebar():
-    st.sidebar.markdown("## 🧭 Navigation")
+    steps = ["Overview", "Profile", "Transactions", "Goals", "Budget", "Upload", "Results"]
 
-    # Define steps in order
-    steps = [
-        "Overview",
-        "Profile",
-        "Transactions",
-        "Goals",
-        "Budget",
-        "Upload",
-        "Results",
-    ]
-
-    # Keep current section in session state
-    if "section" not in st.session_state:
+    if "section" not in st.session_state or st.session_state.section not in steps:
         st.session_state.section = "Overview"
 
-    # Render steps as buttons
-    for i, step in enumerate(steps, start=1):
-        is_active = st.session_state.section == step
-        # Visual marker: ✓ for completed, → for current, ○ for upcoming
-        if i < steps.index(st.session_state.section) + 1:
-            prefix = "✓"
-        elif is_active:
-            prefix = "→"
-        else:
-            prefix = "○"
+    current_section = st.session_state.section
+    current_index = steps.index(current_section)
 
-        if st.sidebar.button(
-            f"{prefix} {i}. {step}",
-            key=f"nav_{step}",
-            use_container_width=True,
-            type="primary" if is_active else "secondary",
-        ):
-            st.session_state.section = step
-            st.rerun()
+    st.sidebar.markdown("## 🧭 Navigation")
+
+    selected = st.sidebar.radio(
+        "Go to",
+        steps,
+        index=current_index,
+    )
+
+    st.session_state.section = selected
 
     st.sidebar.markdown("---")
 
-    # Action buttons
-    if st.sidebar.button("🔄 Run Analysis", use_container_width=True):
+    if st.sidebar.button("🔄 Run Analysis", width="stretch"):
         result = run_pipeline_if_possible()
         if result:
             st.sidebar.success("Analysis complete.")
-            st.session_state.section = "Results"
-            st.rerun()
         else:
             st.sidebar.warning("Need a student profile and transactions first.")
 
-    if st.sidebar.button("🧹 Clear Session", use_container_width=True):
-        for key in [
-            "student",
-            "transactions",
-            "goals",
-            "budget",
-            "last_runner_result",
-            "last_upload_batch",
-            "last_vision_result",
-            "section",
-        ]:
-            st.session_state[key] = None if key!= "transactions" and key!= "goals" else []
+    if st.sidebar.button("🧹 Clear Session", width="stretch"):
+        st.session_state.student = None
+        st.session_state.transactions = []
+        st.session_state.goals = []
+        st.session_state.budget = None
+        st.session_state.last_runner_result = None
+        st.session_state.last_upload_batch = None
+        st.session_state.last_vision_result = None
+        st.session_state.section = "Overview"
         st.rerun()
 
-    return st.session_state.section
+    return selected
 
 
 # =========================================================
