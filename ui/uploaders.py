@@ -1997,17 +1997,16 @@ def render_upload_and_extract_panel(
             uploaded_file.name,
             len(uploaded_file.getvalue()),
             uploaded_file.type,) if uploaded_file else None
-
-    # Clear stored result if files changed
+    
     last_files_key = st.session_state.get(f"{result_state_key}_files_key")
-    if last_files_key != current_files_key:
+
+    # Only clear when user actually selected a different non-empty file set
+    if current_files_key and last_files_key != current_files_key:
         st.session_state[result_state_key] = None
         st.session_state[f"{result_state_key}_files_key"] = current_files_key
 
     if not uploaded_files:
-        st.session_state[result_state_key] = None
-        st.session_state[f"{result_state_key}_files_key"] = None
-        return None
+        return st.session_state.get(result_state_key)
 
     st.markdown("## 👀 Preview")
     for file in uploaded_files:
@@ -2154,18 +2153,16 @@ def render_upload_extract_and_convert_panel(
     len(uploaded_file.getvalue()),
     uploaded_file.type,
 ) if uploaded_file else None
-
-    # Clear stored result if files changed
+    
     last_files_key = st.session_state.get(f"{result_state_key}_files_key")
-    if last_files_key != current_files_key:
+
+# Only clear when user actually selected a different non-empty file set
+    if current_files_key and last_files_key != current_files_key:
         st.session_state[result_state_key] = None
         st.session_state[f"{result_state_key}_files_key"] = current_files_key
 
     if not uploaded_files:
-        # Return any previously stored result
-        st.session_state[result_state_key] = None
-        st.session_state[f"{result_state_key}_files_key"] = None
-        return None
+        return st.session_state.get(result_state_key)
 
     st.markdown("## 👀 Preview")
     for file in uploaded_files:

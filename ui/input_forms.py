@@ -2552,7 +2552,7 @@ def render_budget_form(
                     end_date=end_date,
                     is_active=True,
                     categories=categories,
-                    savings_goal=float(suggested_savings),
+                    savings_goals=float(suggested_savings) if suggested_savings > 0 else None,
                     alert_threshold=float(alert_threshold_pct / 100.0),
                     notes="Interactive category budget created from UI form",
                 )
