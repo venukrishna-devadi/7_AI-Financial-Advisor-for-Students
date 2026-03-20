@@ -585,25 +585,68 @@ def render_upload_section():
 # =========================================================
 # SIDEBAR
 # =========================================================
-
 def render_sidebar():
     steps = ["Overview", "Profile", "Transactions", "Goals", "Budget", "Upload", "Results"]
+
+    icons = {
+        "Overview": "🏠",
+        "Profile": "👤",
+        "Transactions": "💳",
+        "Goals": "🎯",
+        "Budget": "💰",
+        "Upload": "📤",
+        "Results": "🧠",
+    }
 
     if "section" not in st.session_state or st.session_state.section not in steps:
         st.session_state.section = "Overview"
 
     current_section = st.session_state.section
-    current_index = steps.index(current_section)
 
     st.sidebar.markdown("## 🧭 Navigation")
 
-    selected = st.sidebar.radio(
-        "Go to",
-        steps,
-        index=current_index,
+    st.sidebar.markdown(
+        """
+        <style>
+        div[data-testid="stSidebar"] .nav-button button {
+            width: 100%;
+            text-align: left;
+            border-radius: 14px;
+            padding: 0.75rem 0.9rem;
+            margin-bottom: 0.45rem;
+            font-weight: 600;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.03);
+            color: white;
+        }
+
+        div[data-testid="stSidebar"] .nav-button button:hover {
+            border: 1px solid rgba(67, 97, 238, 0.55);
+            background: rgba(67, 97, 238, 0.12);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
-    st.session_state.section = selected
+    for step in steps:
+        active = step == current_section
+        label = f"{icons.get(step, '•')}  {step}"
+
+        container = st.sidebar.container()
+        with container:
+            st.markdown('<div class="nav-button">', unsafe_allow_html=True)
+            clicked = st.button(
+                label,
+                key=f"nav_{step}",
+                width="stretch",
+                type="primary" if active else "secondary",
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        if clicked:
+            st.session_state.section = step
+            st.rerun()
 
     st.sidebar.markdown("---")
 
@@ -625,8 +668,7 @@ def render_sidebar():
         st.session_state.section = "Overview"
         st.rerun()
 
-    return selected
-
+    return st.session_state.section
 
 # =========================================================
 # MAIN PAGE RENDERING
