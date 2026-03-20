@@ -34,6 +34,7 @@ import traceback
 import threading
 import queue
 import time
+import json
 
 from schemas.student import Student
 from schemas.transaction import Transaction
@@ -119,14 +120,7 @@ class FinancialRunnerResult:
         self.alert_warning = alert_summary.get("warning_count", 0)
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert to a UI/API-friendly dictionary.
-
-        Note:
-        - transactions are serialized using model_dump()
-        - most other sections are already dicts from the graph
-        """
-        return {
+        payload = {
             "success": self.success,
             "pipeline_status": self.pipeline_status,
             "has_partial_results": self.has_partial_results,
@@ -147,7 +141,7 @@ class FinancialRunnerResult:
             "execution_time_seconds": self.execution_time_seconds,
             "extraction_result": self.extraction_result,
             "result": {
-                "transactions": [t.model_dump() for t in self.transactions],
+                "transactions": [t.model_dump(mode="json") for t in self.transactions],
                 "analysis": self.analysis,
                 "plan": self.plan,
                 "tracking_report": self.tracking_report,
@@ -155,16 +149,18 @@ class FinancialRunnerResult:
                 "alert_result": self.alert_result,
             },
         }
-    
-    def __str__(self) -> str:
-        status = "✅ Success" if self.success else "❌ Failed"
-        return (
-            f"FinancialRunnerResult("
-            f"{status}, "
-            f"pipeline_status={self.pipeline_status}, "
-            f"health={self.overall_health}, "
-            f"alerts={self.alert_total})"
-        )
+
+        return json.loads(json.dumps(payload, default=str))
+        
+        def __str__(self) -> str:
+            status = "✅ Success" if self.success else "❌ Failed"
+            return (
+                f"FinancialRunnerResult("
+                f"{status}, "
+                f"pipeline_status={self.pipeline_status}, "
+                f"health={self.overall_health}, "
+                f"alerts={self.alert_total})"
+            )
     
 
 def error_result(
