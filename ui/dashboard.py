@@ -721,21 +721,43 @@ def render_transactions_page():
     st.markdown("---")
     render_transactions_table()
 
+def _load_goal_card_styles():
+    st.markdown(
+        f"""
+        <style>
+        .goal-card {{
+            background: {COLORS['card']};
+            border: 1px solid {COLORS['border']};
+            border-radius: 16px;
+            padding: 1.2rem;
+            color: {COLORS['text']};   /* <-- makes body text dark */
+        }}
+        .goal-card h3, .goal-card h4, .goal-card p, .goal-card div {{
+            color: {COLORS['text']} !important;
+        }}
+        .goal-card .stMetric label, .goal-card .stMetric div {{
+            color: {COLORS['muted']} !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def render_goals_page():
+    _load_goal_card_styles()          # ← add this
     st.markdown("## 🎯 Goals")
-
     student = st.session_state.student
     if student is None:
         st.warning("Create a student profile first.")
         return
-
-    goal = render_goal_form(student.student_id)
+    with st.container():              # ← wrap the form in a card
+        st.markdown('<div class="goal-card">', unsafe_allow_html=True)
+        goal = render_goal_form(student.student_id)
+        st.markdown('</div>', unsafe_allow_html=True)
     if goal:
         st.session_state.goals.append(goal)
         run_pipeline_if_possible()
         st.rerun()
-
     st.markdown("---")
     render_goals_panel()
 
