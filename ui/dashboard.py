@@ -382,18 +382,19 @@ def render_transactions_table():
 
 
 def render_goals_panel():
+    _load_goal_card_styles() # ← call it here too
+    st.markdown('<div class="goal-card">', unsafe_allow_html=True)
     st.markdown('<div class="dash-section-title">🎯 Goals</div>', unsafe_allow_html=True)
-
     goals: List[Goal] = st.session_state.goals
     if not goals:
         st.markdown('<div class="dash-soft">No goals created yet.</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         return
-
     for goal in goals:
         progress = float(goal.current_amount / goal.target_amount * 100.0) if goal.target_amount > 0 else 0.0
         st.markdown(
             f"""
-            <div class="dash-card">
+            <div style="margin-bottom:1rem;">
                 <strong>{goal.name}</strong><br/>
                 Category: {goal.category.value if hasattr(goal.category, 'value') else goal.category} |
                 Priority: {goal.priority.value if hasattr(goal.priority, 'value') else goal.priority}<br/>
@@ -403,6 +404,7 @@ def render_goals_panel():
             unsafe_allow_html=True,
         )
         st.progress(min(progress, 100.0) / 100.0, text=f"Progress: {progress:.1f}%")
+   
 
 
 def render_budget_panel():
@@ -725,18 +727,22 @@ def _load_goal_card_styles():
     st.markdown(
         f"""
         <style>
-        .goal-card {{
+        /* Card container */
+       .goal-card {{
             background: {COLORS['card']};
             border: 1px solid {COLORS['border']};
             border-radius: 16px;
             padding: 1.2rem;
-            color: {COLORS['text']};   /* <-- makes body text dark */
+            color: {COLORS['text']};
         }}
-        .goal-card h3, .goal-card h4, .goal-card p, .goal-card div {{
-            color: {COLORS['text']} !important;
+        /* Force ALL text inside the card to dark */
+       .goal-card, 
+       .goal-card * {{
+            color: {COLORS['text']}!important;
         }}
-        .goal-card .stMetric label, .goal-card .stMetric div {{
-            color: {COLORS['muted']} !important;
+        /* Make the section title dark too */
+       .goal-card.dash-section-title {{
+            color: {COLORS['text']}!important;
         }}
         </style>
         """,
