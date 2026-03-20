@@ -1,0 +1,352 @@
+financial_runner.py should be the bridge between your app/UI and the graph.
+
+Think of it like this:
+	•	builder.py knows how the pipeline flows
+	•	agents know how to reason
+	•	schemas know what data looks like
+	•	financial_runner.py knows how to accept app requests and execute the right flow cleanly
+
+So the runner is the application service layer.
+
+Mental model for financial_runner.py
+
+What it should do
+
+It should provide clean functions like:
+	•	run full pipeline from prebuilt transactions
+	•	run pipeline from vision output
+	•	run quick re-analysis after adding a new transaction
+	•	return one final clean result object to UI/API
+
+So instead of UI doing this:
+	•	create builder
+	•	prepare state
+	•	call graph
+	•	inspect partial outputs
+	•	handle errors
+	•	normalize final response
+
+the UI should simply do:
+
+runner.run_from_transactions(...)
+runner.run_from_vision(...)
+runner.add_manual_transaction_and_rerun(...)
+
+What it is connected to
+
+financial_runner.py sits above the graph.
+
+It talks to:
+	•	graph/builder.py
+	•	schemas/
+	•	maybe utils/vision_llm_wrapper.py
+	•	maybe utils/vision_transaction_bridge.py indirectly through graph
+	•	later ui/ or an API layer
+
+So the flow becomes:
+UI / API
+   ↓
+financial_runner.py
+   ↓
+graph/builder.py
+   ↓
+agents
+   ↓
+final state/result
+
+What it should not do
+
+The runner should not:
+	•	do financial analysis itself
+	•	duplicate planner/analyzer/tracker logic
+	•	contain UI code
+	•	contain heavy parsing logic
+	•	contain LLM prompt logic
+
+That belongs elsewhere.
+
+The runner should mainly do:
+	•	input preparation
+	•	graph invocation
+	•	result shaping
+	•	top-level error handling
+
+
+Inputs it should accept
+
+At minimum, the runner should support these input modes.
+
+Mode 1: Prebuilt transactions
+
+User already has Transaction objects.
+
+Example:
+	•	manual entry
+	•	existing saved history
+	•	mock/test data
+
+Input:
+	•	student
+	•	transactions
+	•	optional budget
+	•	optional goals
+
+Mode 2: Vision output
+
+User uploads an image, and your vision wrapper has already extracted structured output.
+
+Input:
+	•	student
+	•	vision_output
+	•	optional budget
+	•	optional goals
+
+Then runner passes that to graph, and graph intake converts it.
+
+Mode 3: Hybrid
+
+User already has old transactions and uploads a new receipt.
+
+Input:
+	•	student
+	•	transactions
+	•	vision_output
+	•   merge strategy
+
+Outputs it should give
+
+The runner should return a clean app-facing result, not raw scattered graph state only.
+
+So internally graph may produce:
+	•	analysis
+	•	plan
+	•	tracking_report
+	•	advice_result
+	•	alert_result
+	•	warnings
+	•	errors
+
+The runner can return that as a structured final result like:
+
+{
+    "success": True,
+    "pipeline_status": "completed",
+    "student_id": "...",
+    "transactions": [...],
+    "analysis": {...},
+    "plan": {...},
+    "tracking_report": {...},
+    "advice_result": {...},
+    "alert_result": {...},
+    "warnings": [...],
+    "errors": [...]
+}
+
+This becomes the clean response the UI can consume.
+
+⸻
+
+Why a runner is useful even though you already have builder
+
+Because builder.py is a workflow engine wrapper.
+
+But app code usually needs a business-facing service.
+
+Example:
+
+Builder thinks like this:
+	•	state
+	•	nodes
+	•	edges
+	•	conditional routing
+
+Runner thinks like this:
+	•	user uploaded a receipt
+	•	user added a transaction
+	•	user wants dashboard refreshed
+	•	user wants full financial check
+
+That difference is important
+
+Good responsibilities for runner
+
+Here is the right job split.
+
+builder.py
+	•	orchestration logic
+	•	graph construction
+	•	state passing
+
+financial_runner.py
+	•	public execution methods
+	•	request preparation
+	•	standardized result format
+	•	top-level exception handling
+	•	convenience methods for common app actions
+
+Best methods for financial_runner.py
+
+1. run_from_transactions(...)
+
+Use when transactions already exist.
+
+Input
+	•	student
+	•	transactions
+	•	optional budget
+	•	optional goals
+	•	optional lookback_days
+
+Output
+	•	final pipeline result
+
+⸻
+
+2. run_from_vision_output(...)
+
+Use when image extraction already happened.
+
+Input
+	•	student
+	•	vision_output
+	•	optional budget
+	•	optional goals
+	•	optional lookback_days
+
+Output
+	•	final pipeline result
+
+⸻
+
+3. run(...)
+
+General unified entrypoint.
+
+This can accept either:
+	•	transactions
+	•	or vision_output
+
+and internally decide which state to send to the graph.
+
+This is the method UI will probably call most often.
+
+add_transaction_and_rerun(...)
+
+When a user adds one new manual transaction.
+
+append_vision_result_and_rerun(...)
+
+When user uploads a new receipt into existing history.
+
+run_quick_health_check(...)
+
+Maybe only returns:
+	•	alerts
+	•	tracker summary
+	•	advice health
+
+run_safe(...)
+
+Wraps exceptions and returns guaranteed structured error response.
+
+⸻
+
+What state preparation it should do
+
+The runner should:
+	•	ensure optional fields default cleanly
+	•	pass a clean state dict to builder
+	•	not let UI worry about internal graph keys
+
+Example internally:
+state = {
+    "student": student,
+    "transactions": transactions or [],
+    "budget": budget,
+    "goals": goals or [],
+    "lookback_days": lookback_days,
+}
+
+
+Then call builder.
+
+⸻
+
+What result normalization it should do
+
+Graph output may be technically correct but still too raw.
+
+Runner should normalize things like:
+	•	ensure missing sections become {} or []
+	•	add success = pipeline_status != "failed"
+	•	expose important summaries at top level if useful
+
+For example:
+{
+    "success": True,
+    "pipeline_status": "completed",
+    "warnings": [],
+    "errors": [],
+    "result": {
+        ...
+    }
+}
+
+What success means for financial_runner.py
+
+A good runner should let your future UI do something as simple as:
+runner = create_financial_runner()
+result = runner.run_from_vision_output(
+    student=student,
+    vision_output=vision_result,
+    budget=budget,
+    goals=goals,
+)
+
+And then UI can directly display:
+	•	dashboard summary
+	•	advice
+	•	alerts
+	•	plan
+	•	tracking
+
+without touching graph internals.
+
+Include now
+	•	FinancialRunner class
+	•	run()
+	•	run_from_transactions()
+	•	run_from_vision_output()
+	•	result normalization
+	•	safe error response
+    	persistence/database saving
+	•	async
+	•	timeout
+	•	merge histories
+	•	background jobs
+
+One subtle design choice
+
+I recommend the runner does not call vision_llm_wrapper directly
+
+Why?
+
+Because you already separated:
+	•	extraction
+	•	bridge
+	•	graph
+
+That is good architecture.runner should accept vision_output, not raw image bytes.
+ for now, keep the runner one layer above graph, not above raw image extraction.
+
+That keeps design clean.
+Final mental picture
+
+Think of financial_runner.py as:
+
+the service receptionist of your whole application
+
+It receives user-ready inputs,
+sends them into the graph,
+collects all outputs,
+and returns one clean response.

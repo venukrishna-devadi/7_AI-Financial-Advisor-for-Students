@@ -1,0 +1,235 @@
+What should alert.py do?
+
+Think of tracker.py as:
+	•	“What is the student’s current financial status?”
+
+Think of alert.py as:
+	•	“What needs immediate attention right now?”
+
+So:
+	•	Tracker measures and monitors
+	•	Alert detects urgency and converts it into actionable alert objects
+
+⸻
+
+Mental model for alert.py
+
+Its job
+
+The alert agent should scan the student’s current situation and raise important notices such as:
+	•	budget category almost exhausted
+	•	category already over budget
+	•	spending pace too fast for this point in the month
+	•	goal is falling behind schedule
+	•	savings rate too low
+	•	emergency fund too weak
+	•	unusual spending spike
+	•	repeated risky pattern from analyzer
+
+It should answer:
+	•	What should the student be warned about?
+	•	How urgent is it?
+	•	What should they do immediately?
+
+⸻
+
+Why do we need alert.py if tracker already has alerts?
+
+Good question.
+
+Your tracker currently already produces monitoring-style alerts. But a dedicated alert.py agent is still useful because it can become the central urgency engine.
+
+Separation of responsibility
+
+Tracker
+
+Focuses on:
+	•	calculating status
+	•	category usage
+	•	pace
+	•	progress
+	•	structured monitoring
+
+Alert
+
+Focuses on:
+	•	converting signals into prioritized warnings
+	•	deduplicating overlapping warnings
+	•	assigning severity
+	•	creating student-friendly alert messages
+	•	deciding which alerts should be shown now vs later
+
+So alert.py becomes more like a notification and escalation layer.
+
+⸻
+
+What inputs should alert.py take?
+
+It should probably take these:
+
+Required inputs
+	•	student
+	•	analysis from analyzer
+	•	plan from planner
+	•	tracking_report from tracker
+
+Optional inputs
+	•	goals
+	•	today override for testing
+	•	maybe previous_alerts later for deduplication or cooldown logic
+
+⸻
+
+What should it output?
+
+It should return a structured dictionary like:
+
+{
+    "student_id": "...",
+    "alert_date": "...",
+    "overall_alert_level": "info | warning | critical",
+    "alerts": [
+        {
+            "id": "...",
+            "type": "budget_warning",
+            "severity": "warning",
+            "title": "...",
+            "message": "...",
+            "recommended_action": "...",
+            "category": "groceries",
+            "source": "tracker"
+        }
+    ],
+    "summary": {
+        "total_alerts": 3,
+        "critical_count": 1,
+        "warning_count": 2,
+        "info_count": 0
+    }
+}
+
+Types of alerts we may want
+
+1. Budget alerts
+
+Examples:
+	•	groceries at 85%
+	•	dining out over budget
+	•	overall budget in critical zone
+
+2. Pace alerts
+
+Examples:
+	•	transport spending is too fast for day 12 of month
+	•	multiple categories are ahead of spend pace
+
+3. Goal alerts
+
+Examples:
+	•	emergency fund behind schedule
+	•	laptop goal unlikely at current contribution rate
+
+4. Savings alerts
+
+Examples:
+	•	savings rate below safe threshold
+	•	disposable income not being converted into savings
+
+5. Pattern alerts
+
+From analyzer:
+	•	weekend overspending pattern
+	•	category concentration risk
+	•	recurring subscriptions building up
+
+6. Stress alerts
+
+From planner / tracker / student state:
+	•	fixed expenses too high relative to income
+	•	very low remaining monthly buffer
+	•	emergency cushion too weak
+
+⸻
+
+Severity levels
+
+Keep it simple:
+	•	info
+	•	warning
+	•	critical
+
+Meaning
+
+info
+
+Not urgent, but useful
+Example:
+	•	“You have 3 subscription services worth reviewing.”
+
+warning
+
+Needs attention soon
+Example:
+	•	“Dining out is already at 85% of budget.”
+
+critical
+
+Needs immediate action
+Example:
+	•	“Overall budget is over 100% used.”
+
+⸻
+
+How is it connected to the other agents?
+
+It reads from:
+	•	analyzer.py
+	•	planner.py
+	•	tracker.py
+
+It can later feed into:
+	•	advisor.py
+	•	ui/dashboard.py
+	•	notification system
+	•	weekly digest / reminders
+
+So the flow becomes:
+	•	analyzer finds patterns
+	•	planner builds strategy
+	•	tracker measures progress
+	•	alert raises urgency
+	•	advisor explains what to do
+
+That is a very nice agent chain.
+
+⸻
+
+What logic style should we use?
+
+For alert.py, I strongly recommend:
+
+Mostly rule-based
+
+Why?
+Because alerts should be:
+	•	deterministic
+	•	stable
+	•	explainable
+	•	easy to test
+
+For example:
+	•	if category >= 80% → warning
+	•	if category > 100% → critical
+	•	if goal behind pace → warning
+	•	if savings rate < threshold → warning
+
+This is better than LLM for alert generation.
+
+Maybe LLM later
+
+Later, you could use LLM only for:
+	•	nicer wording
+	•	grouping alerts
+	•	summarizing alerts for the UI
+
+But first version should be rule-based.

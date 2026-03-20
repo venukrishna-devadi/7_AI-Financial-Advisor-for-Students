@@ -1,0 +1,279 @@
+What is tracker.py?
+
+If:
+	•	Analyzer = “What happened?”
+	•	Planner = “What should we do next?”
+
+then:
+	•	Tracker = “Are we following the plan?”
+
+So the Tracker Agent’s job is to monitor actual behavior against the recommended budget/plan over time.
+
+It is the agent that answers questions like:
+	•	Are we staying within budget?
+	•	Which categories are drifting off track?
+	•	Are we saving as planned?
+	•	Are we improving or getting worse?
+	•	Do we need a warning right now?
+
+Real-world analogy
+
+Think of the Tracker as a fitness progress checker.
+	•	Planner says: “Eat 2000 calories/day and walk 8k steps.”
+	•	Tracker checks: “Did you actually do that this week?”
+
+Same here:
+	•	Planner says: “Groceries cap = $250, coffee cap = $100, save $165/month”
+	•	Tracker checks: “You already spent $220 on groceries by mid-month, coffee is fine, savings transfer not yet made”
+
+So Tracker is the monitoring + alerting layer.
+
+What should tracker.py do?
+
+Core responsibilities
+
+1) Compare actual spending vs budget
+
+For each budget category:
+	•	budget limit
+	•	spent so far
+	•	remaining
+	•	percent used
+	•	status
+
+Example:
+	•	Groceries: limit $250, spent $210, remaining $40, used 84%, status warning
+
+⸻
+
+2) Check overall budget health
+
+Not just per category, but overall:
+	•	total budgeted
+	•	total spent
+	•	total remaining
+	•	percent used
+	•	whether user is overall on track
+
+⸻
+
+3) Track savings progress
+
+Planner may say:
+	•	save $165/month
+
+Tracker should check:
+	•	how much has actually been saved this month?
+	•	are we on pace?
+	•	behind / on track / ahead?
+
+This can start simple:
+	•	expected savings by today in the month
+	•	actual savings transactions or remaining cash
+
+⸻
+
+4) Detect risk / alert conditions
+
+Examples:
+	•	category > 80% used → warning
+	•	category > 100% used → over budget
+	•	spending pace too fast for this point in month
+	•	multiple categories in warning zone
+	•	savings pace behind target
+
+⸻
+
+5) Produce a status report
+
+Tracker should return a clean structured report the UI and graph can use.
+
+That report should be very easy to show in Streamlit later:
+	•	green / yellow / red statuses
+	•	cards
+	•	progress bars
+	•	alerts
+
+⸻
+
+Inputs to Tracker
+
+Tracker should take things like:
+
+Required inputs
+	•	student: Student
+	•	transactions: List[Transaction]
+	•	budget: Budget
+
+Optional helpful inputs
+	•	plan: Dict[str, Any] from Planner
+	•	goals: List[Goal]
+	•	analysis: Dict[str, Any]
+
+Difference between Analyzer and Tracker
+
+This is very important to keep clear in your head.
+
+Analyzer
+
+Looks for patterns and insights in history.
+
+Examples:
+	•	you spend more on weekends
+	•	groceries dominate your spending
+	•	you have 3 subscriptions
+
+Tracker
+
+Checks performance against a target/plan.
+
+Examples:
+	•	groceries budget is already 84% used
+	•	overall monthly budget is still okay
+	•	savings goal progress is behind schedule
+
+So:
+	•	Analyzer = insight engine
+	•	Planner = recommendation engine
+	•	Tracker = monitoring engine
+
+Main functions Tracker should probably have
+
+Here’s a clean breakdown.
+
+1) track_student(...)
+
+Main entrypoint
+
+Takes:
+	•	student
+	•	transactions
+	•	budget
+	•	optional goals
+
+Returns:
+	•	complete tracking report
+
+⸻
+
+2) _track_budget(...)
+
+Compares transactions vs budget
+
+Returns:
+	•	overall budget summary
+	•	category-by-category tracking
+
+⸻
+
+3) _track_categories(...)
+
+For each category in budget:
+	•	spent
+	•	remaining
+	•	percent used
+	•	status
+
+⸻
+
+4) _track_goals(...)
+
+If goals exist:
+	•	current progress
+	•	percentage complete
+	•	remaining
+	•	on track / behind / completed
+
+⸻
+
+5) _generate_alerts(...)
+
+Turn numbers into warnings
+
+Examples:
+	•	“Groceries is above 80% usage”
+	•	“Coffee budget exceeded”
+	•	“Savings progress is behind target”
+
+⸻
+
+6) _generate_recommendations(...)
+
+Simple actionable outputs based on current tracking state
+
+Examples:
+	•	pause discretionary spending
+	•	reduce weekend entertainment
+	•	increase goal contribution next month
+
+Pseudo-flow of Tracker
+
+Let’s say the user has:
+	•	Groceries budget = $250
+	•	Coffee budget = $100
+	•	Savings target = $165/month
+
+And current transactions show:
+	•	Groceries spent = $220
+	•	Coffee spent = $40
+	•	Savings contribution = $50
+
+Tracker flow would be:
+
+Step 1
+
+Read all transactions relevant to this month
+
+Step 2
+
+Aggregate spend by category
+
+Step 3
+
+Compare each category with budget limit
+
+Step 4
+
+Calculate percent used and status:
+	•	groceries → 88% → warning
+	•	coffee → 40% → on_track
+
+Step 5
+
+Check savings progress:
+	•	target = $165
+	•	actual = $50
+	•	behind
+
+Step 6
+
+Generate alerts:
+	•	“Groceries budget is almost exhausted”
+	•	“Savings progress is behind target”
+
+Step 7
+
+Generate recommendations:
+	•	“Minimize grocery overspend this week”
+	•	“Consider moving $20 extra to savings next paycheck”
+
+What statuses should Tracker use?
+
+Keep it simple and consistent.
+
+For categories
+	•	on_track
+	•	warning
+	•	over_budget
+
+For overall
+	•	healthy
+	•	warning
+	•	critical
+
+For goals
+	•	not_started
+	•	in_progress
+	•	on_track
+	•	behind
+	•	completed

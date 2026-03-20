@@ -1,0 +1,338 @@
+What this file should do
+
+Its purpose is:
+	•	take an image input
+	•	send it to a vision-capable Groq model
+	•	ask for financial-document extraction
+	•	return structured, normalized output
+	•	fail safely if model output is messy
+
+So this file is not just “image to text.”
+It is more like:
+
+image → vision model → structured financial understanding
+
+⸻
+
+Mental model
+
+Your current wrappers now become:
+
+llm_wrapper.py
+
+For:
+	•	text-only prompts
+	•	advisor
+	•	maybe some future summarization
+
+vision_llm_wrapper.py
+
+For:
+	•	receipt image extraction
+	•	bank screenshot extraction
+	•	statement screenshot extraction
+	•	OCR fallback
+	•	structured field extraction from images
+
+That separation is clean.
+
+⸻
+
+What this wrapper should not do
+
+To keep it clean, vision_llm_wrapper.py should not:
+	•	parse transactions fully into your Transaction schema
+	•	do budgeting logic
+	•	do analysis
+	•	do OCR preprocessing
+	•	decide app workflow
+
+Those belong elsewhere.
+
+This wrapper should only do:
+	•	image preparation
+	•	model call
+	•	structured response parsing
+	•	safe normalization
+
+⸻
+
+Best public responsibility
+
+I recommend one main public method first:
+
+extract_financial_document(...)
+
+This method should:
+	•	accept image input
+	•	call Groq vision model
+	•	return extracted content in structured JSON
+
+Later, you can add more specialized methods if needed.
+
+⸻
+
+What inputs should it accept
+
+To make it flexible, support:
+	•	file path
+	•	bytes
+	•	maybe PIL Image later
+	•	maybe base64 string later
+
+For now, simplest useful support:
+	•	str | Path | bytes
+
+⸻
+
+What output should it return
+
+It should return a consistent structured dictionary, similar to your llm_wrapper.py.
+
+Best return shape:
+
+{
+    "success": True,
+    "data": {
+        "document_type": "receipt",
+        "extracted_text": "...",
+        "merchant": "Walmart",
+        "date": "2026-03-12",
+        "currency": "USD",
+        "totals": {
+            "subtotal": "40.00",
+            "tax": "5.67",
+            "total": "45.67"
+        },
+        "possible_transactions": [
+            {
+                "date": "2026-03-12",
+                "description": "Walmart purchase",
+                "amount": "45.67",
+                "merchant": "Walmart"
+            }
+        ],
+        "confidence": "medium"
+    },
+    "raw_response": "...",
+    "metadata": {...},
+    "error": None
+}
+
+This is powerful because:
+	•	UI can show extracted info
+	•	parser can use possible_transactions
+	•	downstream agents can use extracted_text
+	•	you can debug model behavior with raw_response
+
+⸻
+
+Suggested internal structure
+
+Here is the clean design.
+
+1. Result model
+
+You can either use:
+	•	a dataclass
+	•	or just standardized dictionaries
+
+Because your text wrapper already returns dicts, I would stay consistent and return dicts here too.
+
+⸻
+
+2. Private helper functions
+
+_load_image_bytes(...)
+
+Purpose:
+	•	accept path/bytes
+	•	return raw bytes safely
+
+_encode_image_base64(...)
+
+Purpose:
+	•	convert image bytes to base64 string for API payload
+
+_guess_mime_type(...)
+
+Purpose:
+	•	detect if image is png/jpeg/webp
+	•	needed for proper image content formatting
+
+_build_system_prompt()
+
+Purpose:
+	•	define the extractor role
+
+_build_user_prompt(task_type=...)
+
+Purpose:
+	•	instruct the model exactly what to extract
+
+_try_parse_json(...)
+
+Purpose:
+	•	safely parse model response
+	•	strip code fences
+	•	recover JSON if model adds extra text
+
+_validate_extraction_output(...)
+
+Purpose:
+	•	ensure output contains expected keys
+	•	fill defaults if missing
+	•	normalize types
+
+⸻
+
+3. Main class
+
+class VisionLLMWrapper
+
+This class should:
+	•	initialize Groq client
+	•	keep simple usage stats
+	•	expose one main public extraction method
+
+⸻
+
+Suggested public methods
+
+Main method
+
+extract_financial_document(...)
+
+Input:
+	•	image input
+	•	optional task_type
+	•	optional custom_prompt
+
+Output:
+	•	structured extraction result
+
+⸻
+
+Optional later methods
+
+These can come later, not needed now.
+
+extract_receipt(...)
+
+For receipt-specific prompt
+
+extract_statement(...)
+
+For statement-specific prompt
+
+extract_text_only(...)
+
+For raw text extraction only
+
+At first, one method is enough.
+
+⸻
+
+Best task types to support
+
+Instead of making one huge generic prompt every time, support modes.
+
+Example:
+	•	"general_financial"
+	•	"receipt"
+	•	"bank_statement"
+	•	"screenshot_text"
+
+Then your prompt builder can slightly adapt.
+
+That makes the wrapper more reusable.
+
+⸻
+
+Prompt design
+
+This part matters a lot.
+
+System prompt should say:
+	•	you are a financial document extraction assistant
+	•	extract only what is visible
+	•	do not invent missing values
+	•	return JSON only
+	•	keep uncertainty explicit
+
+User prompt should ask for:
+	•	document type
+	•	readable extracted text
+	•	merchant/date/amount totals if visible
+	•	possible transactions if visible
+	•	confidence level
+
+⸻
+
+Very important output philosophy
+
+The model should not be forced to hallucinate.
+
+So we want instructions like:
+	•	if field not visible, return null
+	•	if uncertain, use low confidence
+	•	never make up dates/amounts/merchant names
+
+That is critical.
+
+⸻
+
+Example normalized schema
+
+I recommend this exact conceptual schema for v1:
+{
+  "document_type": "receipt | bank_statement | screenshot | unknown",
+  "extracted_text": "full readable text from image",
+  "merchant": "string or null",
+  "date": "YYYY-MM-DD or raw date string or null",
+  "currency": "USD or null",
+  "totals": {
+    "subtotal": "string or null",
+    "tax": "string or null",
+    "total": "string or null"
+  },
+  "possible_transactions": [
+    {
+      "date": "string or null",
+      "description": "string",
+      "amount": "string or null",
+      "merchant": "string or null"
+    }
+  ],
+  "confidence": "high | medium | low",
+  "notes": "short explanation of uncertainty if needed"
+}
+
+This is enough for your MVP.
+
+⸻
+
+How this connects to ocr_helper.py
+
+Later flow can be:
+
+Route 1
+
+Use OCR only
+
+Route 2
+
+Use vision only
+
+Route 3
+
+Use OCR first, then vision if:
+	•	OCR failed
+	•	OCR confidence low
+	•	OCR text too short
+	•	OCR quality issues too many
+
+This is where your project becomes really strong.
+
+⸻
+
