@@ -571,7 +571,7 @@ class TrackerAgent:
             pace = goal.get("pace")
             if pace and pace.get("status") == "behind":
                 recommendations.append(
-                    f"Increase contributions to '{goal["name"]}' or extend the timeline if needed."
+                    f"Increase contributions to '{goal['name']}' or extend the timeline if needed."
                 )
             elif goal["status"] == "completed":
                 recommendations.append(
