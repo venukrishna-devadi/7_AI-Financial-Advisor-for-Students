@@ -644,12 +644,12 @@ def render_sidebar():
             "last_runner_result",
             "last_upload_batch",
             "last_vision_result",
+            "section",
         ]:
-            # Reset lists to [] and objects to None
-            st.session_state[key] = [] if key in ["transactions", "goals"] else None
-        # Keep the navigation visible
-        st.session_state.section = "Overview"
+            st.session_state[key] = None if key!= "transactions" and key!= "goals" else []
         st.rerun()
+
+    return st.session_state.section
 
 
 # =========================================================

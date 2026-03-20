@@ -1,4 +1,4 @@
-
+import json
 
 # """
 # 📤 UPLOADERS - Streamlit upload interface for images and PDFs
@@ -582,7 +582,7 @@
 #     _render_file_badges(file_type, mime_type, size_bytes)
 
 #     if file_type == "image":
-#         st.image(uploaded_file, caption=filename, use_container_width=True)
+#         st.image(uploaded_file, caption=filename, width="stretch")
 #     elif file_type == "pdf":
 #         st.markdown(
 #             '<div class="upload-warning">📄 PDF uploaded successfully. Deep extraction is not wired in this UI yet, but the file is accepted.</div>',
@@ -638,7 +638,7 @@
 #     process_clicked = st.button(
 #         "✨ Extract with Vision AI",
 #         type="primary",
-#         use_container_width=True,
+#         width="stretch",
 #     )
 
 #     if not process_clicked:
@@ -922,7 +922,7 @@
 #     process_clicked = st.button(
 #         "✨ Extract and Convert to Transactions",
 #         type="primary",
-#         use_container_width=True,
+#         width="stretch",
 #     )
 
 #     if not process_clicked:
@@ -976,7 +976,7 @@
 #                 "amount": float(txn.amount),
 #             })
 
-#         st.dataframe(preview_rows, use_container_width=True, hide_index=True)
+#         st.dataframe(preview_rows, width="stretch", hide_index=True)
 #     else:
 #         st.warning("No transactions were created from the uploaded file(s).")
 
@@ -1074,7 +1074,10 @@
 
 
 
-
+"""
+📤 UPLOADERS - Streamlit upload interface with persistent results
+Now results stay visible even after page reruns!
+"""
 
 from __future__ import annotations
 
@@ -1870,13 +1873,14 @@ def extract_transactions_from_uploaded_files(
 
 
 # =========================================================
-# UI RENDERERS
+# UI RENDERERS WITH PERSISTENT RESULTS
 # =========================================================
 
 def render_single_file_upload(
     *,
     label: str = "Upload a receipt, screenshot, or PDF",
     accepted_types: Optional[List[str]] = None,
+    uploader_key: str = "single_file_upload",
 ) -> Optional[Any]:
     """
     Render a single file uploader and return the uploaded file.
@@ -1892,6 +1896,7 @@ def render_single_file_upload(
         type=accepted_types,
         accept_multiple_files=False,
         help="Images are extracted with vision AI. PDFs are parsed as bank statement text where possible.",
+        key=f"{uploader_key}_single",
     )
 
     return uploaded_file
@@ -1901,6 +1906,7 @@ def render_multi_file_upload(
     *,
     label: str = "Upload one or more receipts, screenshots, or PDFs",
     accepted_types: Optional[List[str]] = None,
+    uploader_key: str = "multi_file_upload",
 ) -> List[Any]:
     """
     Render a multi-file uploader and return uploaded files.
@@ -1916,6 +1922,7 @@ def render_multi_file_upload(
         type=accepted_types,
         accept_multiple_files=True,
         help="Images use vision extraction. PDFs use statement text parsing when possible.",
+        key=f"{uploader_key}_multi",
     )
 
     return uploaded_files or []
@@ -1953,37 +1960,53 @@ def render_upload_and_extract_panel(
     task_type: str = "general_financial",
     model: Optional[str] = None,
     uploader_key: str = "upload_extract_panel",
+    result_state_key: str = "upload_extract_preview_result",
 ) -> Optional[Dict[str, Any]]:
     """
-    Extraction-only panel:
-    - images -> vision extraction preview
-    - PDFs -> accepted, but this panel is mainly for previewing extraction paths
+    Extraction-only panel with PERSISTENT results.
+    Results stay visible even after page reruns.
     """
     load_uploader_styles()
     _render_uploader_hero()
 
     accepted_types = ["png", "jpg", "jpeg", "webp", "pdf"]
 
+    # Track current files to detect changes
     if allow_multiple:
         uploaded_files = st.file_uploader(
             "Upload files",
             type=accepted_types,
-            ultiple_files=True,
+            accept_multiple_files=True,
             help="Upload one or more receipts, screenshots, statements, or PDFs.",
             key=f"{uploader_key}_multi",
-)
+        )
         uploaded_files = uploaded_files or []
+        #current_files_key = tuple(f.name for f in uploaded_files) if uploaded_files else ()
+        current_files_key = tuple((f.name, len(f.getvalue()), f.type) for f in uploaded_files) if uploaded_files else ()
     else:
         uploaded_file = st.file_uploader(
-    "Upload a file",
-    type=accepted_types,
-    accept_multiple_files=False,
-    help="Upload a receipt, screenshot, statement image, or PDF.",
-    key=f"{uploader_key}_single",
-)
+            "Upload a file",
+            type=accepted_types,
+            accept_multiple_files=False,
+            help="Upload a receipt, screenshot, statement image, or PDF.",
+            key=f"{uploader_key}_single",
+        )
         uploaded_files = [uploaded_file] if uploaded_file else []
+        
+        current_files_key = (
+            uploaded_file.name,
+            len(uploaded_file.getvalue()),
+            uploaded_file.type,) if uploaded_file else None
+
+    # Clear stored result if files changed
+    last_files_key = st.session_state.get(f"{result_state_key}_files_key")
+    if last_files_key != current_files_key:
+        st.session_state[result_state_key] = None
+        st.session_state[f"{result_state_key}_files_key"] = current_files_key
 
     if not uploaded_files:
+        st.session_state[result_state_key] = None
+        st.session_state[f"{result_state_key}_files_key"] = None
         return None
 
     st.markdown("## 👀 Preview")
@@ -1994,60 +2017,71 @@ def render_upload_and_extract_panel(
         "✨ Extract Preview",
         type="primary",
         width="stretch",
+        key=f"{uploader_key}_process",
     )
 
-    if not process_clicked:
-        return None
+    if process_clicked:
+        with st.spinner("Processing uploaded file(s)..."):
+            batch_result = process_uploaded_files(
+                uploaded_files,
+                task_type=task_type,
+                model=model,
+            )
+        # Store result in session state
+        st.session_state[result_state_key] = batch_result.to_dict()
 
-    with st.spinner("Processing uploaded file(s)..."):
-        batch_result = process_uploaded_files(
-            uploaded_files,
-            task_type=task_type,
-            model=model,
-        )
+    # Get stored result (either from previous run or current)
+    result = st.session_state.get(result_state_key)
+    if not result:
+        return None
 
     st.markdown("## 📊 Upload Summary")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("Total Files", batch_result.total_files)
+        st.metric("Total Files", result.get("total_files", 0))
     with c2:
-        st.metric("Images", batch_result.image_count)
+        st.metric("Images", result.get("image_count", 0))
     with c3:
-        st.metric("PDFs", batch_result.pdf_count)
+        st.metric("PDFs", result.get("pdf_count", 0))
     with c4:
-        st.metric("Extracted", batch_result.extracted_count)
+        st.metric("Extracted", result.get("extracted_count", 0))
 
-    for file_result in batch_result.files:
+    for file_result in result.get("files", []):
         st.markdown("---")
-        st.markdown(f"### 📄 {file_result.filename}")
-        _render_file_badges(file_result.file_type, file_result.mime_type, file_result.size_bytes)
+        st.markdown(f"### 📄 {file_result.get('filename', 'Unknown')}")
+        _render_file_badges(
+            file_result.get("file_type", "unknown"),
+            file_result.get("mime_type", "unknown"),
+            file_result.get("size_bytes", 0),
+        )
 
-        if file_result.file_type == "pdf":
+        if file_result.get("file_type") == "pdf":
             st.markdown(
                 '<div class="upload-warning">📄 This panel is extraction-preview focused. Use the convert panel to parse PDF statements into transactions.</div>',
                 unsafe_allow_html=True,
             )
             continue
 
-        if file_result.vision_result:
-            _render_vision_result(file_result.vision_result)
-        elif file_result.error:
+        if file_result.get("vision_result"):
+            _render_vision_result(file_result["vision_result"])
+        elif file_result.get("error"):
             st.markdown(
-                f'<div class="upload-error">❌ {file_result.error}</div>',
+                f'<div class="upload-error">❌ {file_result["error"]}</div>',
                 unsafe_allow_html=True,
             )
 
-    if batch_result.errors:
+    if result.get("errors"):
         with st.expander("⚠️ Processing Errors"):
-            for err in batch_result.errors:
+            for err in result["errors"]:
                 st.write(f"- {err}")
 
-    return batch_result.to_dict()
+    return result
 
 
 def render_image_upload_for_vision(
     *,
     model: Optional[str] = None,
+    uploader_key: str = "image_vision",
 ) -> Optional[Dict[str, Any]]:
     """
     Convenience renderer for a single image-first extraction flow.
@@ -2057,6 +2091,8 @@ def render_image_upload_for_vision(
         allow_multiple=False,
         task_type="general_financial",
         model=model,
+        uploader_key=uploader_key,
+        result_state_key=f"{uploader_key}_result",
     )
 
     if not batch:
@@ -2078,43 +2114,57 @@ def render_upload_extract_and_convert_panel(
     task_type: str = "general_financial",
     model: Optional[str] = None,
     uploader_key: str = "upload_convert_panel",
+    result_state_key: str = "last_upload_extract_convert_result",
 ) -> Optional[Dict[str, Any]]:
     """
-    Full UI flow:
+    Full UI flow with PERSISTENT results:
     - upload
     - preview
     - extract
     - convert directly to Transaction objects
-
-    Supports:
-    - images -> vision + bridge
-    - PDFs -> text extraction + statement parsing
+    Results stay visible after reruns!
     """
     load_uploader_styles()
     _render_uploader_hero()
 
     accepted_types = ["png", "jpg", "jpeg", "webp", "pdf"]
 
+    # Track current files to detect changes
     if allow_multiple:
         uploaded_files = st.file_uploader(
-    "Upload files",
-    type=accepted_types,
-    accept_multiple_files=True,
-    help="Upload receipts, screenshots, statement images, or PDFs.",
-    key=f"{uploader_key}_multi",
-)
+            "Upload files",
+            type=accepted_types,
+            accept_multiple_files=True,
+            help="Upload receipts, screenshots, statement images, or PDFs.",
+            key=f"{uploader_key}_multi",
+        )
         uploaded_files = uploaded_files or []
+        current_files_key = tuple((f.name, len(f.getvalue()), f.type) for f in uploaded_files) if uploaded_files else ()
     else:
         uploaded_file = st.file_uploader(
-    "Upload a file",
-    type=accepted_types,
-    accept_multiple_files=False,
-    help="Upload a receipt, screenshot, statement image, or PDF.",
-    key=f"{uploader_key}_single",
-)
+            "Upload a file",
+            type=accepted_types,
+            accept_multiple_files=False,
+            help="Upload a receipt, screenshot, statement image, or PDF.",
+            key=f"{uploader_key}_single",
+        )
         uploaded_files = [uploaded_file] if uploaded_file else []
+        current_files_key = (
+    uploaded_file.name,
+    len(uploaded_file.getvalue()),
+    uploaded_file.type,
+) if uploaded_file else None
+
+    # Clear stored result if files changed
+    last_files_key = st.session_state.get(f"{result_state_key}_files_key")
+    if last_files_key != current_files_key:
+        st.session_state[result_state_key] = None
+        st.session_state[f"{result_state_key}_files_key"] = current_files_key
 
     if not uploaded_files:
+        # Return any previously stored result
+        st.session_state[result_state_key] = None
+        st.session_state[f"{result_state_key}_files_key"] = None
         return None
 
     st.markdown("## 👀 Preview")
@@ -2125,26 +2175,32 @@ def render_upload_extract_and_convert_panel(
         "✨ Extract and Convert to Transactions",
         type="primary",
         width="stretch",
+        key=f"{uploader_key}_process",
     )
 
-    if not process_clicked:
-        return None
+    if process_clicked:
+        with st.spinner("Extracting and converting uploaded file(s)..."):
+            if allow_multiple:
+                result = extract_transactions_from_uploaded_files(
+                    uploaded_files,
+                    student_id=student_id,
+                    task_type=task_type,
+                    model=model,
+                )
+            else:
+                result = extract_transactions_from_uploaded_file(
+                    uploaded_files[0],
+                    student_id=student_id,
+                    task_type=task_type,
+                    model=model,
+                )
+        # Store result in session state
+        st.session_state[result_state_key] = result
 
-    with st.spinner("Extracting and converting uploaded file(s)..."):
-        if allow_multiple:
-            result = extract_transactions_from_uploaded_files(
-                uploaded_files,
-                student_id=student_id,
-                task_type=task_type,
-                model=model,
-            )
-        else:
-            result = extract_transactions_from_uploaded_file(
-                uploaded_files[0],
-                student_id=student_id,
-                task_type=task_type,
-                model=model,
-            )
+    # Get stored result
+    result = st.session_state.get(result_state_key)
+    if not result:
+        return None
 
     st.markdown("## 📊 Conversion Summary")
 
@@ -2233,6 +2289,7 @@ def render_upload_extract_and_convert_panel(
 
     return result
 
+
 def pdf_bytes_to_page_images(
     pdf_bytes: bytes,
     *,
@@ -2241,14 +2298,6 @@ def pdf_bytes_to_page_images(
 ) -> List[bytes]:
     """
     Convert PDF bytes into a list of page images as raw bytes.
-
-    Args:
-        pdf_bytes: Uploaded PDF content
-        zoom: Render scale factor (2.0 = good quality for OCR/vision)
-        image_format: "png" recommended
-
-    Returns:
-        List of image bytes, one per page
     """
     images: List[bytes] = []
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -2264,6 +2313,7 @@ def pdf_bytes_to_page_images(
         doc.close()
 
     return images
+
 
 def guess_pdf_page_task_type(filename: str) -> str:
     """
@@ -2285,19 +2335,6 @@ def extract_transactions_from_pdf_via_vision(
     """
     Convert uploaded PDF into page images, run each page through vision,
     then bridge into Transaction objects.
-
-    Returns:
-        {
-            "success": bool,
-            "file_result": {...},
-            "vision_results": list[dict],
-            "bridge_results": list[dict],
-            "transactions": list[Transaction],
-            "transaction_count": int,
-            "page_count": int,
-            "pages_succeeded": int,
-            "errors": list[str],
-        }
     """
     filename = uploaded_file.name
     mime_type = uploaded_file.type or "application/pdf"
@@ -2348,8 +2385,8 @@ def extract_transactions_from_pdf_via_vision(
             try:
                 if task_type == "bank_statement":
                     vision_result = wrapper.extract_bank_statement(image_bytes,
-                                                                   max_tokens = 4000,
-                                                                   temperature = 0.1)
+                                                                   max_tokens=4000,
+                                                                   temperature=0.1)
                 else:
                     vision_result = wrapper.extract_financial_document(
                         image_bytes,
@@ -2437,6 +2474,7 @@ def extract_transactions_from_pdf_via_vision(
             "errors": [str(e)],
         }
 
+
 def _deduplicate_transactions(transactions: List[Any]) -> List[Any]:
     """
     Remove likely duplicates across PDF pages.
@@ -2458,8 +2496,6 @@ def _deduplicate_transactions(transactions: List[Any]) -> List[Any]:
     return deduped
 
 
-
-
 # =========================================================
 # DEMO
 # =========================================================
@@ -2472,8 +2508,10 @@ if __name__ == "__main__":
         student_id="STU_DEMO_001",
         allow_multiple=True,
         task_type="general_financial",
+        uploader_key="demo",
+        result_state_key="demo_result",
     )
 
     if result:
         with st.expander("🧩 Raw Upload Result"):
-            st.json(result)
+            st.json(json.loads(json.dumps(result, default=str)))
