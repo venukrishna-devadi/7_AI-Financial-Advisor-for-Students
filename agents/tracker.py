@@ -575,7 +575,7 @@ class TrackerAgent:
                 )
             elif goal["status"] == "completed":
                 recommendations.append(
-                    f"'{goal["name"]}' is completed. Consider setting a new financial goal."
+                    f"'{goal['name']}' is completed. Consider setting a new financial goal."
                 )
         
         # Deduplication while preserving the order
