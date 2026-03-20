@@ -1,15 +1,20 @@
-
 import os
 from dotenv import load_dotenv
 from typing import Optional
+
+try:
+    import streamlit as st
+    _has_st = True
+except ImportError:
+    _has_st = False
 
 load_dotenv()
 
 class Config:
     """ Application Configuration"""
 
-    # API KEY
-    GROQ_API_KEY:str = os.getenv("GROQ_API_KEY", "")
+    # API KEY — use st.secrets on Cloud, env var locally
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "") or (_has_st and st.secrets.get("GROQ_API_KEY", ""))
 
     # Text LLM Model Settings
     LLM_MODEL: str = "llama-3.1-8b-instant"
@@ -35,7 +40,6 @@ class Config:
         "font": "sans serif"
     }
 
-    # --- ADD INDENTATION TO THE METHODS BELOW ---
     @classmethod
     def validate(cls):
         """ Validate Configuration"""
@@ -60,7 +64,6 @@ class Config:
             "temperature": cls.VISION_TEMPERATURE,
             "max_completion_tokens": cls.VISION_MAX_TOKENS
         }
-    
+
 # validate on import
 Config.validate()
-
