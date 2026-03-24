@@ -42,6 +42,57 @@ from schemas.budget import Budget
 from schemas.goal import Goal
 
 from graph.builder import create_financial_graph_builder, FinancialGraphState
+from datetime import date, datetime
+from enum import Enum
+from pathlib import Path
+from pydantic import BaseModel
+from dataclasses import is_dataclass, asdict
+
+def _safe_serialize(obj, seen=None):
+    if seen is None:
+        seen = set()
+
+    # primitives
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+
+    # circular reference protection
+    obj_id = id(obj)
+    if obj_id in seen:
+        return "<circular_reference>"
+
+    # simple special cases
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+
+    if isinstance(obj, Enum):
+        return obj.value
+
+    if isinstance(obj, Path):
+        return str(obj)
+
+    # pydantic
+    if isinstance(obj, BaseModel):
+        seen.add(obj_id)
+        return _safe_serialize(obj.model_dump(), seen)
+
+    # dataclass
+    if is_dataclass(obj):
+        seen.add(obj_id)
+        return _safe_serialize(asdict(obj), seen)
+
+    # dict
+    if isinstance(obj, dict):
+        seen.add(obj_id)
+        return {str(k): _safe_serialize(v, seen) for k, v in obj.items()}
+
+    # list / tuple / set
+    if isinstance(obj, (list, tuple, set)):
+        seen.add(obj_id)
+        return [_safe_serialize(v, seen) for v in obj]
+
+    # fallback
+    return str(obj)
 
 class FinancialRunnerResult:
     """
@@ -150,17 +201,17 @@ class FinancialRunnerResult:
             },
         }
 
-        return json.loads(json.dumps(payload, default=str))
+        return _safe_serialize(payload)
         
-        def __str__(self) -> str:
-            status = "✅ Success" if self.success else "❌ Failed"
-            return (
-                f"FinancialRunnerResult("
-                f"{status}, "
-                f"pipeline_status={self.pipeline_status}, "
-                f"health={self.overall_health}, "
-                f"alerts={self.alert_total})"
-            )
+    def __str__(self) -> str:
+        status = "✅ Success" if self.success else "❌ Failed"
+        return (
+            f"FinancialRunnerResult("
+            f"{status}, "
+            f"pipeline_status={self.pipeline_status}, "
+            f"health={self.overall_health}, "
+            f"alerts={self.alert_total})"
+        )
     
 
 def error_result(
