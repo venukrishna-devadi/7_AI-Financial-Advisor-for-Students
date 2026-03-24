@@ -435,6 +435,7 @@ def render_goals_panel():
             unsafe_allow_html=True,
         )
         st.progress(min(progress, 100.0) / 100.0, text=f"Progress: {progress:.1f}%")
+        st.markdown("</div>", unsafe_allow_html=True)
    
 
 
@@ -788,7 +789,7 @@ def _load_goal_card_styles():
             color: {COLORS['text']}!important;
         }}
         /* Make the section title dark too */
-       .goal-card.dash-section-title {{
+       .goal-card .dash-section-title {{
             color: {COLORS['text']}!important;
         }}
         </style>
@@ -797,20 +798,25 @@ def _load_goal_card_styles():
     )
 
 def render_goals_page():
-    _load_goal_card_styles()          # ← add this
+    _load_goal_card_styles()
     st.markdown("## 🎯 Goals")
+
     student = st.session_state.student
     if student is None:
         st.warning("Create a student profile first.")
         return
-    with st.container():              # ← wrap the form in a card
+
+    goal = None
+    with st.container():
         st.markdown('<div class="goal-card">', unsafe_allow_html=True)
         goal = render_goal_form(student.student_id)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
     if goal:
         st.session_state.goals.append(goal)
         run_pipeline_if_possible()
         st.rerun()
+
     st.markdown("---")
     render_goals_panel()
 
