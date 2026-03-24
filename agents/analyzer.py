@@ -20,20 +20,6 @@ Design principles:
 - Patterns are returned as dicts (not Python objects) for JSON safety.
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass, asdict
-from datetime import date, timedelta
-from collections import defaultdict
-from typing import List, Dict, Any, Optional, Tuple
-from statistics import mean, stdev
-
-
-from schemas.transaction import Transaction, TransactionType
-from schemas.student import Student
-from schemas.budget import Budget
-
-
 # # -------------------------
 # # Small models (JSON-friendly)
 # # -------------------------
