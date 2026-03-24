@@ -10,20 +10,21 @@ except ImportError:
 
 load_dotenv()
 
+
 class Config:
-    """ Application Configuration"""
+    """Application Configuration"""
 
     # API KEY — use st.secrets on Cloud, env var locally
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "") or (_has_st and st.secrets.get("GROQ_API_KEY", ""))
 
     # Text LLM Model Settings
     LLM_MODEL: str = "llama-3.1-8b-instant"
-    LLM_TEMPERATURE: float = 0.7
+    LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: Optional[int] = None
 
-    #Vision LLM Settings
-    VISION_MODEL:str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    VISION_TEMPERATURE: float= 0.2
+    # Vision LLM Settings
+    VISION_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    VISION_TEMPERATURE: float = 0.2
     VISION_MAX_TOKENS: int = 1024
 
     # App Settings
@@ -42,28 +43,31 @@ class Config:
 
     @classmethod
     def validate(cls):
-        """ Validate Configuration"""
+        """Validate configuration"""
         if not cls.GROQ_API_KEY:
-            raise ValueError("GROQ_API_KEY not found in env variables")
-        
+            raise ValueError("GROQ_API_KEY not found in environment variables or Streamlit secrets")
+
     @classmethod
     def get_llm_kwargs(cls):
         """Get LLM initialization arguments"""
-        return {
+        kwargs = {
             "model": cls.LLM_MODEL,
             "temperature": cls.LLM_TEMPERATURE,
             "api_key": cls.GROQ_API_KEY,
-            "max_tokens": cls.LLM_MAX_TOKENS
         }
-    
+        if cls.LLM_MAX_TOKENS is not None:
+            kwargs["max_tokens"] = cls.LLM_MAX_TOKENS
+        return kwargs
+
     @classmethod
     def get_vision_kwargs(cls):
-        """Get Vision LLM initializable arguments"""
-        return {
+        """Get Vision LLM initialization arguments"""
+        kwargs = {
             "model": cls.VISION_MODEL,
             "temperature": cls.VISION_TEMPERATURE,
-            "max_completion_tokens": cls.VISION_MAX_TOKENS
+            "max_completion_tokens": cls.VISION_MAX_TOKENS,
         }
+        return kwargs
 
-# validate on import
+
 Config.validate()
