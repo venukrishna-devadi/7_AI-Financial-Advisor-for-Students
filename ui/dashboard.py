@@ -269,16 +269,45 @@ def get_health_style(health: str) -> str:
     return "dash-soft"
 
 
+# def run_pipeline_if_possible():
+#     student: Optional[Student] = st.session_state.student
+#     transactions: List[Transaction] = st.session_state.transactions
+#     goals: List[Goal] = st.session_state.goals
+#     budget: Optional[Budget] = st.session_state.budget
+
+#     if student is None:
+#         return None
+
+#     if not transactions:
+#         return None
+
+#     runner = create_financial_runner()
+#     result = runner.run_from_transactions(
+#         student=student,
+#         transactions=transactions,
+#         budget=budget,
+#         goals=goals,
+#     )
+#     st.session_state.last_runner_result = result
+#     return result
+
 def run_pipeline_if_possible():
     student: Optional[Student] = st.session_state.student
     transactions: List[Transaction] = st.session_state.transactions
     goals: List[Goal] = st.session_state.goals
     budget: Optional[Budget] = st.session_state.budget
 
+    print("\n[DEBUG] run_pipeline_if_possible called")
+    print("[DEBUG] student:", student.name if student else None)
+    print("[DEBUG] transaction_count:", len(transactions))
+
     if student is None:
+        st.session_state.last_runner_result = None
         return None
 
     if not transactions:
+        print("[DEBUG] No transactions → clearing result")
+        st.session_state.last_runner_result = None
         return None
 
     runner = create_financial_runner()
@@ -288,6 +317,7 @@ def run_pipeline_if_possible():
         budget=budget,
         goals=goals,
     )
+
     st.session_state.last_runner_result = result
     return result
 
@@ -675,8 +705,6 @@ def render_sidebar():
 # =========================================================
 
 def render_overview():
-    if st.session_state.student and st.session_state.transactions and st.session_state.last_runner_result is None:
-        run_pipeline_if_possible()
     
     render_snapshot_cards()
     render_status_banner()
@@ -699,7 +727,8 @@ def render_profile_page():
     student = render_student_profile_form(existing_student=st.session_state.student)
     if student:
         st.session_state.student = student
-        run_pipeline_if_possible()
+        st.session_state.last_runner_result = None  # invalidate old result
+        st.success("Profile saved. Run analysis from sidebar.")
         st.rerun()
 
     render_input_summary_preview(
