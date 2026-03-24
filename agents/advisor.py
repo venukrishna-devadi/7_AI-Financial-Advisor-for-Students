@@ -36,17 +36,6 @@ This agent is intentionally structured like your other agents:
 5. fallback response
 """
 
-from __future__ import annotations
-
-from datetime import date
-from typing import Dict, List, Optional, Any, Literal
-import json
-
-from schemas.student import Student
-from schemas.goal import Goal
-from utils.llm_wrapper import llm_wrapper
-
-
 # # ---------------------------------------------------------
 # # Type aliases
 # # ---------------------------------------------------------
@@ -884,6 +873,15 @@ from utils.llm_wrapper import llm_wrapper
 #     """Create and return a new advisor agent instance."""
 #     return AdvisorAgent()
 
+from __future__ import annotations
+
+from datetime import date
+from typing import Dict, List, Optional, Any, Literal
+import json
+
+from schemas.student import Student
+from schemas.goal import Goal
+from utils.llm_wrapper import llm_wrapper
 
 
 HealthStatus = Literal["healthy", "warning", "critical", "unknown"]
@@ -949,6 +947,7 @@ class AdvisorAgent:
             analysis=analysis,
             plan=plan,
             student=student,
+            goals=goals,
         )
 
         system_prompt = self._build_system_prompt()
@@ -988,6 +987,7 @@ class AdvisorAgent:
                 deterministic_health=deterministic_health,
                 context=context,
                 student=student,
+                goals=goals,
             )
 
             self.conversation_history.append({
@@ -1040,7 +1040,7 @@ class AdvisorAgent:
         ][:4]
 
         key_patterns: List[Dict[str, Any]] = []
-        for p in patterns[:4]:
+        for p in patterns[:5]:
             if isinstance(p, dict):
                 key_patterns.append({
                     "name": p.get("name", "pattern"),
@@ -1080,7 +1080,7 @@ class AdvisorAgent:
             if not is_problem:
                 continue
 
-            category_payload = {
+            payload = {
                 "category": cat,
                 "status": status,
                 "percent_used": info.get("percent_used", 0.0),
@@ -1090,9 +1090,18 @@ class AdvisorAgent:
             }
 
             if cat in self.fixed_expense_categories:
-                fixed_problem_categories.append(category_payload)
+                fixed_problem_categories.append(payload)
             else:
-                flexible_problem_categories.append(category_payload)
+                flexible_problem_categories.append(payload)
+
+        fixed_problem_categories.sort(
+            key=lambda x: (x.get("percent_used", 0), x.get("spent", 0)),
+            reverse=True,
+        )
+        flexible_problem_categories.sort(
+            key=lambda x: (x.get("percent_used", 0), x.get("spent", 0)),
+            reverse=True,
+        )
 
         goal_data: List[Dict[str, Any]] = []
         for g in goals:
@@ -1122,23 +1131,31 @@ class AdvisorAgent:
             plan=plan,
         )
 
+        fixed_expenses = (
+            float(student.total_fixed_expenses())
+            if hasattr(student, "total_fixed_expenses")
+            else 0.0
+        )
+        monthly_income = float(getattr(student, "monthly_income", 0.0) or 0.0)
+        fixed_ratio = (fixed_expenses / monthly_income * 100.0) if monthly_income > 0 else 0.0
+
+        current_savings = float(getattr(student, "current_savings", 0.0) or 0.0)
+        emergency_months = (current_savings / fixed_expenses) if fixed_expenses > 0 else 0.0
+
         return {
             "student": {
                 "name": student.name.split()[0] if getattr(student, "name", None) else "Student",
-                "monthly_income": float(getattr(student, "monthly_income", 0.0)),
-                "current_savings": float(getattr(student, "current_savings", 0.0)),
+                "monthly_income": monthly_income,
+                "current_savings": current_savings,
                 "risk_profile": getattr(student, "risk_profile", "unknown"),
-                "graduation_year": getattr(student, "graduation_year", None),
                 "estimated_disposable_income": (
                     student.estimated_disposable_income()
                     if hasattr(student, "estimated_disposable_income")
                     else None
                 ),
-                "fixed_monthly_expenses": (
-                    student.total_fixed_expenses()
-                    if hasattr(student, "total_fixed_expenses")
-                    else None
-                ),
+                "fixed_monthly_expenses": fixed_expenses,
+                "fixed_expense_ratio_percent": round(fixed_ratio, 1),
+                "emergency_months_covered": round(emergency_months, 1),
             },
             "financial_summary": {
                 "monthly_spending_estimate": round(monthly_spending_estimate, 2),
@@ -1212,11 +1229,11 @@ class AdvisorAgent:
         analysis: Dict[str, Any],
         plan: Dict[str, Any],
         student: Student,
+        goals: List[Goal],
     ) -> HealthStatus:
         """
-        Deterministic health classification.
+        Deterministic health classification with stricter caution.
         """
-
         summary = analysis.get("summary", {}) or {}
         patterns = analysis.get("patterns", []) or []
         budget_status = (tracking_report.get("budget_status", {}) or {}).get("status", "unknown")
@@ -1227,11 +1244,37 @@ class AdvisorAgent:
             else 0.0
         )
         monthly_income = float(getattr(student, "monthly_income", 0.0) or 0.0)
-        fixed_ratio = (fixed_expenses / monthly_income * 100.0) if monthly_income > 0 else 0.0
+        current_savings = float(getattr(student, "current_savings", 0.0) or 0.0)
 
-        for p in patterns:
-            if isinstance(p, dict) and p.get("severity") == "critical":
-                return "critical"
+        fixed_ratio = (fixed_expenses / monthly_income * 100.0) if monthly_income > 0 else 0.0
+        emergency_months = (current_savings / fixed_expenses) if fixed_expenses > 0 else 0.0
+
+        top_categories = summary.get("top_categories", []) or []
+        top_share = float(top_categories[0].get("share_pct", 0.0)) if top_categories else 0.0
+
+        critical_pattern = any(
+            isinstance(p, dict) and p.get("severity") == "critical"
+            for p in patterns
+        )
+        warning_pattern = any(
+            isinstance(p, dict) and p.get("severity") == "warning"
+            for p in patterns
+        )
+
+        has_high_priority_goal = any(
+            (g.priority.value if hasattr(g.priority, "value") else str(g.priority)) in {"high", "critical"}
+            for g in goals
+        )
+        has_zero_progress_goal = any(
+            float(getattr(g, "current_amount", 0.0)) <= 0 and float(getattr(g, "target_amount", 0.0)) > 0
+            for g in goals
+        )
+
+        if monthly_income <= 0:
+            return "unknown"
+
+        if critical_pattern:
+            return "critical"
 
         if budget_status in {"critical", "over_budget", "exceeded"}:
             return "critical"
@@ -1239,16 +1282,28 @@ class AdvisorAgent:
         if fixed_ratio >= 75:
             return "critical"
 
+        if emergency_months < 0.25 and fixed_ratio >= 50:
+            return "critical"
+
+        if warning_pattern:
+            return "warning"
+
         if budget_status in {"warning"}:
             return "warning"
 
         if fixed_ratio >= 55:
             return "warning"
 
-        if monthly_income > 0:
-            return "healthy"
+        if emergency_months < 1.0 and fixed_ratio >= 45:
+            return "warning"
 
-        return "unknown"
+        if top_share >= 70:
+            return "warning"
+
+        if has_high_priority_goal and has_zero_progress_goal and fixed_ratio >= 50:
+            return "warning"
+
+        return "healthy"
 
     # -----------------------------------------------------
     # Prompt Engineering
@@ -1268,13 +1323,14 @@ IMPORTANT CONSISTENCY RULES:
 SHORT-TERM (immediate_actions, 7 days):
 - Use ONLY flexible_problem_categories. If empty, use top_variable_categories.
 - NEVER output housing/rent/utilities/mortgage/student loans as immediate_actions.
-- Make actions concrete and week-level.
+- Make actions concrete, behavioral, and realistic for this week.
+- Avoid generic actions like "review your budget" unless paired with a specific behavior.
 
 TOP_PRIORITIES:
 - List up to 3 urgent items.
 - If flexible problems exist, those come first.
 - Be category-specific whenever possible.
-- Avoid vague phrases unless you name the category.
+- Avoid vague phrases unless you name the category or goal.
 
 STRATEGIC_ADVICE:
 - Fixed categories go here.
@@ -1355,17 +1411,20 @@ Instructions:
             value = advice.get(field)
 
             if isinstance(value, str):
-                advice[field] = [value.strip()] if value.strip() else defaults[field]
+                cleaned = value.strip()
+                advice[field] = [cleaned] if cleaned and cleaned != "<circular_reference>" else defaults[field]
             elif not isinstance(value, list):
                 advice[field] = defaults[field]
             else:
                 cleaned_items = []
                 for item in value:
-                    if isinstance(item, str) and item.strip() and item.strip() != "<circular_reference>":
-                        cleaned_items.append(item.strip())
+                    if isinstance(item, str):
+                        text = item.strip()
+                        if text and text != "<circular_reference>":
+                            cleaned_items.append(text)
                 advice[field] = cleaned_items if cleaned_items else defaults[field]
 
-        advice["top_priorities"] = advice["top_priorities"][:5]
+        advice["top_priorities"] = advice["top_priorities"][:3]
         advice["immediate_actions"] = advice["immediate_actions"][:3]
         advice["strategic_advice"] = advice["strategic_advice"][:3]
         advice["encouragement"] = advice["encouragement"][:2]
@@ -1388,6 +1447,7 @@ Instructions:
         deterministic_health: str,
         context: Dict[str, Any],
         student: Student,
+        goals: List[Goal],
     ) -> Dict[str, Any]:
         llm_health = advice.get("overall_financial_health", "unknown")
         llm_rank = self.severity_rank.get(llm_health, 0)
@@ -1397,36 +1457,98 @@ Instructions:
             advice["overall_financial_health"] = deterministic_health
 
         flexible_problem_categories = context.get("flexible_problem_categories", [])
+        top_variable_categories = context.get("financial_summary", {}).get("top_variable_categories", [])
         has_flexible_problems = len(flexible_problem_categories) > 0
 
         rewritten_actions: List[str] = []
         for action in advice.get("immediate_actions", []):
             lower = action.lower()
 
-            refers_to_fixed_housing = any(
+            refers_to_fixed = any(
                 phrase in lower for phrase in [
                     "rent", "housing", "mortgage", "utilities", "student loan",
-                    "car payment", "credit card minimum", "insurance"
+                    "car payment", "credit card minimum", "insurance", "internet", "phone"
                 ]
             )
 
-            if refers_to_fixed_housing and has_flexible_problems:
-                replacement = self._build_flexible_replacement_action(flexible_problem_categories)
-                rewritten_actions.append(replacement)
+            too_generic = any(
+                phrase in lower for phrase in [
+                    "review your budget",
+                    "track your daily expenses",
+                    "start tracking your daily expenses",
+                    "identify areas where you can cut back",
+                    "make adjustments as needed",
+                ]
+            )
+
+            if refers_to_fixed and has_flexible_problems:
+                rewritten_actions.append(self._build_flexible_replacement_action(flexible_problem_categories, goals))
+            elif too_generic:
+                rewritten_actions.append(self._build_specific_week_action(flexible_problem_categories, top_variable_categories, goals))
             else:
                 rewritten_actions.append(action)
 
         advice["immediate_actions"] = rewritten_actions[:3]
 
-        # Strong summary rewrite to prevent contradiction.
+        advice["top_priorities"] = self._rewrite_priorities(
+            priorities=advice.get("top_priorities", []),
+            context=context,
+            goals=goals,
+        )
+
         advice["advisor_summary"] = self._rewrite_summary(
             advice=advice,
             deterministic_health=deterministic_health,
             context=context,
             student=student,
+            goals=goals,
         )
 
         return advice
+
+    def _rewrite_priorities(
+        self,
+        *,
+        priorities: List[str],
+        context: Dict[str, Any],
+        goals: List[Goal],
+    ) -> List[str]:
+        result: List[str] = []
+        seen = set()
+
+        flexible = context.get("flexible_problem_categories", [])
+        top_variable = context.get("financial_summary", {}).get("top_variable_categories", [])
+
+        top_cat = None
+        if flexible:
+            top_cat = flexible[0].get("category")
+        elif top_variable:
+            top_cat = top_variable[0].get("category")
+
+        if top_cat:
+            text = f"Reduce pressure in '{top_cat}' before it turns into a larger monthly problem"
+            if text not in seen:
+                result.append(text)
+                seen.add(text)
+
+        if goals:
+            top_goal = goals[0]
+            goal_text = f"Start making steady progress on your '{top_goal.name}' goal"
+            if goal_text not in seen:
+                result.append(goal_text)
+                seen.add(goal_text)
+
+        budget_text = "Track spending weekly against your budget and make small course corrections early"
+        if budget_text not in seen:
+            result.append(budget_text)
+            seen.add(budget_text)
+
+        for p in priorities:
+            if p not in seen:
+                result.append(p)
+                seen.add(p)
+
+        return result[:3]
 
     def _rewrite_summary(
         self,
@@ -1435,8 +1557,10 @@ Instructions:
         deterministic_health: str,
         context: Dict[str, Any],
         student: Student,
+        goals: List[Goal],
     ) -> str:
         first_name = student.name.split()[0] if getattr(student, "name", None) else "Student"
+
         monthly_income = float(getattr(student, "monthly_income", 0.0) or 0.0)
         fixed_expenses = (
             float(student.total_fixed_expenses())
@@ -1444,6 +1568,9 @@ Instructions:
             else 0.0
         )
         fixed_ratio = (fixed_expenses / monthly_income * 100.0) if monthly_income > 0 else 0.0
+
+        current_savings = float(getattr(student, "current_savings", 0.0) or 0.0)
+        emergency_months = (current_savings / fixed_expenses) if fixed_expenses > 0 else 0.0
 
         top_variable_categories = context.get("financial_summary", {}).get("top_variable_categories", [])
         flexible_problems = context.get("flexible_problem_categories", [])
@@ -1454,67 +1581,113 @@ Instructions:
         elif top_variable_categories:
             top_cat = top_variable_categories[0].get("category")
 
-        top_priorities = advice.get("top_priorities", [])
-        first_priority = top_priorities[0] if top_priorities else "tighten spending control"
+        goal_name = goals[0].name if goals else None
 
         if deterministic_health == "critical":
             if fixed_ratio >= 75:
                 return (
                     f"{first_name}, your financial situation is currently critical and needs immediate attention. "
-                    f"Your fixed expenses are taking up about {fixed_ratio:.1f}% of your monthly income, which leaves limited room to recover from surprises. "
-                    f"Your main priority right now is to stabilize cash flow and build a basic emergency cushion."
+                    f"Your fixed expenses are taking up about {fixed_ratio:.1f}% of your monthly income, which leaves very little flexibility. "
+                    f"Your first priority right now is to stabilize cash flow and rebuild breathing room."
+                )
+
+            if emergency_months < 0.25:
+                return (
+                    f"{first_name}, your financial situation is currently critical and needs immediate attention. "
+                    f"Your emergency cushion is extremely thin relative to your monthly obligations, so even a small surprise could create stress. "
+                    f"Focus first on tightening spending and building short-term stability."
                 )
 
             if top_cat:
                 return (
                     f"{first_name}, your financial situation is currently critical and needs immediate attention. "
-                    f"A large share of your recent spending is concentrated in '{top_cat}', which is putting pressure on your overall stability. "
-                    f"Your main priority right now is to reduce that pressure and improve short-term control over spending."
+                    f"A large share of your recent spending is concentrated in '{top_cat}', which is creating pressure on your overall stability. "
+                    f"Your main priority right now is to reduce that pressure and improve short-term control."
                 )
 
             return (
                 f"{first_name}, your financial situation is currently critical and needs immediate attention. "
-                f"The main priority right now is to improve spending control, protect cash flow, and rebuild financial breathing room."
+                f"The main priority right now is to improve spending control, protect cash flow, and rebuild stability."
             )
 
         if deterministic_health == "warning":
+            if goal_name and fixed_ratio >= 50:
+                return (
+                    f"{first_name}, your finances are showing warning signs that should be addressed soon. "
+                    f"Your fixed expenses already take up about {fixed_ratio:.1f}% of income, so progress toward goals like '{goal_name}' will require tighter control. "
+                    f"Small corrections now can prevent a much tighter month later."
+                )
+
             if top_cat:
                 return (
                     f"{first_name}, your finances are showing warning signs that should be addressed soon. "
-                    f"Spending pressure is building, especially around '{top_cat}', so small corrections now can prevent a bigger problem later. "
-                    f"Focus first on {first_priority.lower()}."
+                    f"Recent spending pressure is building, especially around '{top_cat}', so this is a good time to tighten control before it becomes a bigger issue. "
+                    f"Focus on targeted adjustments rather than broad cuts."
                 )
 
             return (
                 f"{first_name}, your finances are showing warning signs that should be addressed soon. "
-                f"The good news is that steady budget control and a few targeted adjustments can improve things quickly."
+                f"The good news is that a few focused adjustments can improve control and protect your progress."
+            )
+
+        if goal_name:
+            return (
+                f"{first_name}, your finances look generally healthy right now. "
+                f"You have room to focus on optimization, savings, and longer-term progress. "
+                f"Your next best step is to make steady progress on '{goal_name}' while keeping weekly spending disciplined."
             )
 
         return (
             f"{first_name}, your finances look generally healthy right now. "
             f"You have room to focus on optimization, savings, and longer-term progress. "
-            f"Your next best step is to {first_priority.lower()}."
+            f"Your next best step is to stay consistent with weekly spending control and automated savings."
         )
 
-    def _build_flexible_replacement_action(self, flexible_problem_categories: List[Dict[str, Any]]) -> str:
+    def _build_flexible_replacement_action(
+        self,
+        flexible_problem_categories: List[Dict[str, Any]],
+        goals: List[Goal],
+    ) -> str:
         if not flexible_problem_categories:
-            return "Review non-essential spending this week and pause at least one flexible category temporarily."
+            if goals:
+                return f"Move a small fixed amount into your '{goals[0].name}' goal this week, even if it is only $25-$50."
+            return "Pause at least one non-essential spending category for the rest of this week."
 
         top = flexible_problem_categories[0]
         cat = top.get("category", "non-essential spending")
 
         if cat == "dining_out":
-            return "Pause or cut dining-out spending for the rest of this week and shift one or two meals to groceries instead."
+            return "Pause dining out for the next 5 days and replace at least two meals with groceries."
         if cat == "coffee":
-            return "Set a coffee spending cap for this week and reduce one or two café purchases."
+            return "Set a coffee cap for this week and skip one or two café purchases."
         if cat in {"shopping", "amazon", "electronics", "clothing"}:
-            return f"Pause {cat} purchases for the rest of this week unless they are absolutely necessary."
+            return f"Pause {cat} purchases for the rest of this week unless they are truly necessary."
         if cat in {"entertainment", "streaming", "games", "movies"}:
-            return f"Keep {cat} spending at zero or near-zero for the rest of this week while budget pressure is high."
+            return f"Keep {cat} spending at or near zero for the rest of this week."
         if cat in {"transport", "uber", "gas"}:
-            return f"Review this week's {cat} spending and reduce optional trips where possible."
+            return f"Reduce optional trips this week and combine errands to cut {cat} spending."
+        if cat == "groceries":
+            return "Make one strict grocery list for this week and avoid unplanned refill trips."
 
-        return f"Reduce {cat} spending this week and set a small short-term cap until the budget stabilizes."
+        return f"Set a small weekly cap for '{cat}' and stay under it through the end of this week."
+
+    def _build_specific_week_action(
+        self,
+        flexible_problem_categories: List[Dict[str, Any]],
+        top_variable_categories: List[Dict[str, Any]],
+        goals: List[Goal],
+    ) -> str:
+        if flexible_problem_categories:
+            return self._build_flexible_replacement_action(flexible_problem_categories, goals)
+
+        if goals:
+            return f"Transfer a small amount into your '{goals[0].name}' goal this week and treat it like a fixed commitment."
+
+        if top_variable_categories:
+            cat = top_variable_categories[0].get("category", "non-essential spending")
+            return f"Keep '{cat}' spending lower this week than last week and avoid impulse purchases."
+
+        return "Choose one non-essential spending category and keep it near zero for the rest of this week."
 
     # -----------------------------------------------------
     # Fallback
